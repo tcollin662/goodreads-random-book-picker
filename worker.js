@@ -29,6 +29,7 @@ function withSecureHeaders(resp) {
     "Content-Security-Policy",
     [
       "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
       "style-src 'unsafe-inline' 'self'",
       "connect-src 'self' https://www.goodreads.com https://*.workers.dev",
       "img-src 'self' data:",
@@ -104,7 +105,7 @@ function clampInt(v, min, max, fallback) {
 function parseGoodreadsRSS(xml) {
   const items = Array.from(xml.matchAll(/<item>([\s\S]*?)<\/item>/g)).map((m) => m[1]);
   const get = (s, tag) => {
-    const m = s.match(new RegExp(`<${tag}>([\\s\\S]*?)<\/${tag}>`, "i"));
+    const m = s.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
     return m ? decode(m[1]) : "";
   };
   return items
@@ -171,6 +172,7 @@ const INDEX_HTML = `<!doctype html>
         <div class="status" id="status"></div>
       </div>
       <div class="hint">Enter your numerical Goodreads ID and click "Load and Pick" to have a random book from your Want-to-read shelf picked for you</div>
+
       <div class="grid">
         <label>Filter</label>
         <input id="filter" placeholder="Filter by title or author" />
@@ -185,8 +187,6 @@ const INDEX_HTML = `<!doctype html>
         <div id="bauthor" style="color:#444"></div>
         <a id="blink" class="link" href="#" target="_blank">Open on Goodreads</a>
       </div>
-
-      
     </div>
   </div>
 
