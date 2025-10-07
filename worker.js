@@ -33,6 +33,7 @@ function withSecureHeaders(resp) {
       "style-src 'unsafe-inline' 'self'",
       "connect-src 'self' https://www.goodreads.com https://*.workers.dev",
       "img-src 'self' data:",
+      "navigate-to 'self' https://www.goodreads.com",
       "base-uri 'none'",
       "form-action 'none'",
       "frame-ancestors 'none'",
@@ -82,8 +83,6 @@ async function handleShelf(url) {
     }
 
     const xml = await upstream.text();
-
-    // Simple guard against absurdly large responses
     if (xml.length > 2_000_000) {
       return json({ error: "Response too large" }, 502);
     }
@@ -108,12 +107,15 @@ function parseGoodreadsRSS(xml) {
     const m = s.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
     return m ? decode(m[1]) : "";
   };
+
   return items
-    .map((it) => ({
-      title: stripToReadPrefix(get(it, "title")),
-      author: get(it, "author_name"),
-      link: get(it, "link"),
-    }))
+    .map((it) => {
+      const title = stripToReadPrefix(get(it, "title"));
+      const author = get(it, "author_name");
+      const rawLink = get(it, "link");
+      const link = normalizeGoodreadsLink(rawLink, title, author);
+      return { title, author, link };
+    })
     .filter((b) => b.title);
 }
 
@@ -123,12 +125,38 @@ function stripToReadPrefix(s) {
 
 function decode(s) {
   return s
+    .replace(/<!\[CDATA\[/g, "")
+    .replace(/\]\]>/g, "")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .trim();
+}
+
+// Ensure we navigate to a clean HTTPS Goodreads URL.
+// If the feed link is missing or odd, fall back to a Goodreads search URL.
+function normalizeGoodreadsLink(u, title, author) {
+  const query = encodeURIComponent([title || "", author || ""].join(" ").trim());
+  const fallback = `https://www.goodreads.com/search?q=${query}`;
+
+  if (!u) return fallback;
+
+  let s = decode(u).trim();
+
+  // Force https
+  s = s.replace(/^http:\/\//i, "https://");
+
+  // If it doesn't look like Goodreads, fall back to search
+  try {
+    const parsed = new URL(s);
+    if (!/\.goodreads\.com$/i.test(parsed.hostname)) return fallback;
+  } catch {
+    return fallback;
+  }
+
+  return s;
 }
 
 // ----- Single-file HTML UI -----
@@ -185,7 +213,7 @@ const INDEX_HTML = `<!doctype html>
       <div class="book grid" id="book" style="display:none">
         <div id="btitle" style="font-weight:600"></div>
         <div id="bauthor" style="color:#444"></div>
-        <a id="blink" class="link" href="#" target="_blank">Open on Goodreads</a>
+        <a id="blink" class="link" href="#" target="_blank" rel="noopener noreferrer">Open on Goodreads</a>
       </div>
     </div>
   </div>
@@ -217,6 +245,7 @@ const INDEX_HTML = `<!doctype html>
         blink.href = b.link;
         blink.style.display = "inline";
       } else {
+        blink.removeAttribute("href");
         blink.style.display = "none";
       }
       bookCard.style.display = "grid";
